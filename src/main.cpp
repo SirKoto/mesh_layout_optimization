@@ -1,6 +1,7 @@
 #include <iostream>
 #include "Args.hpp"
 #include "TriangleMesh.hpp"
+#include "LayoutMaker.hpp"
 
 void print_usage() {
     std::cout << 
@@ -39,6 +40,11 @@ int main(int argc, char** argv) {
     TriangleMesh mesh(in.c_str());
 
     mesh.print_debug_info();
+
+    LayoutMaker::get_mapping_optimized_layout(
+        mesh.get_faces(),
+        (uint32_t)mesh.get_vertices().size(),
+        LayoutMaker::MultiLevel::eVertexLaplacian);
 
     mesh.write_mesh_ply("out.ply");
 }

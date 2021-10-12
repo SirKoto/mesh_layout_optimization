@@ -14,6 +14,14 @@ public:
 
 	void write_mesh_ply(const char* fileName) const;
 
+	const std::vector<Eigen::Vector3f>& get_vertices() const {
+		return m_vertices;
+	}
+
+	const std::vector<Eigen::Array3i>& get_faces() const {
+		return m_faces;
+	}
+
 private:
 
 	void parse_ply(const char* path);
