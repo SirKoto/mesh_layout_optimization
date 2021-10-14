@@ -12,7 +12,7 @@ public:
 
 	void print_debug_info() const;
 
-	void write_mesh_ply(const char* fileName) const;
+	void write_mesh_ply(const char* fileName, const std::vector<Eigen::Array3<uint8_t>>& colors = {}) const;
 
 	const std::vector<Eigen::Vector3f>& get_vertices() const {
 		return m_vertices;

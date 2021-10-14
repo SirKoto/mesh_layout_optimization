@@ -14,7 +14,7 @@ void TriangleMesh::print_debug_info() const
 		"\tNum Faces     " << m_faces.size() << std::endl;
 }
 
-void TriangleMesh::write_mesh_ply(const char* fileName) const
+void TriangleMesh::write_mesh_ply(const char* fileName, const std::vector<Eigen::Array3<uint8_t>>& colors) const
 {
 	std::ofstream stream(fileName, std::ios::binary | std::ios::trunc);
 
@@ -25,6 +25,12 @@ void TriangleMesh::write_mesh_ply(const char* fileName) const
 		reinterpret_cast<const uint8_t*>(m_vertices.data()),
 		tinyply::Type::INVALID, 0);
 
+	if (!colors.empty()) {
+		file.add_properties_to_element("vertex", { "red", "green", "blue" },
+			tinyply::Type::UINT8, colors.size(),
+			reinterpret_cast<const uint8_t*>(colors.data()),
+			tinyply::Type::INVALID, 0);
+	}
 	file.add_properties_to_element("face", { "vertex_indices" },
 		tinyply::Type::INT32, m_faces.size(),
 		reinterpret_cast<const uint8_t*>(m_faces.data()),
