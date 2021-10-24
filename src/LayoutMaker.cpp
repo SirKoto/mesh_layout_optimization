@@ -9,30 +9,56 @@
 
 namespace LayoutMaker {
 
-std::unordered_map<uint32_t, uint32_t>
-vertex_laplacian_layout(const std::vector<Eigen::Array3i>& faces,
+struct LayoutContext {
+
+	uint32_t next_id;
+	const uint32_t max_depth;
+	std::vector<uint32_t> final_cluster;
+	LayoutContext(uint32_t max_depth, uint32_t num_vertices) : next_id(0), max_depth(max_depth) {
+		final_cluster.resize(num_vertices, 0);
+	}
+};
+
+void
+vertex_laplacian_layout(
+	LayoutContext& context,
+	const uint32_t depth,
+	const std::vector<Eigen::Array3i>& faces,
 	const std::unordered_multimap<uint32_t, uint32_t>& vert2face,
 	const std::unordered_set<uint32_t>& vertices_indices,
-	const uint32_t num_max_vertices) {
+	const uint32_t max_number_interations_eigen) {
 
 
+	std::unordered_map<uint32_t, uint32_t> old2new_vert;
+	std::vector<uint32_t> new2old_vert(vertices_indices.size());
+	old2new_vert.reserve(vertices_indices.size());
+	{
+		std::unordered_set<uint32_t>::const_iterator it = vertices_indices.begin();
+		for (uint32_t i = 0; i < (uint32_t)vertices_indices.size(); ++i, ++it) {
+			old2new_vert.insert({ *it, i });
+			new2old_vert[i] = *it;
+		}
+	}
 
-	std::vector<uint32_t> vert_degree(num_max_vertices, 0);
+	// Compute second smallest eigenvector
+	std::vector<uint32_t> vert_degree(vertices_indices.size(), 0);
 	std::vector< Eigen::Triplet<float>> triplet_list;
 	triplet_list.reserve(3 * vertices_indices.size());
 	// Fill connectivity
-	for (uint32_t i : vertices_indices) {
-
-		auto range = vert2face.equal_range(i);
+	std::unordered_set<uint32_t>::const_iterator it = vertices_indices.begin();
+	for (uint32_t v_new = 0; v_new < (uint32_t)vertices_indices.size(); ++v_new, ++it) {
+		uint32_t v_old = *it;
+		auto range = vert2face.equal_range(v_old);
 		std::for_each(range.first, range.second,
 			[&](const std::pair<const uint32_t, uint32_t>& f_id) {
 				const Eigen::Array3i& face = faces.at(f_id.second);
 				for (uint32_t j = 0; j < 3; ++j) {
-					uint32_t v = face[j];
-					if (v != i) {
-						if (vertices_indices.count(v) != 0) {
-							vert_degree[i] += 1;
-							triplet_list.push_back(Eigen::Triplet<float>(i, v, -1.f));
+					uint32_t v2_old = face[j];
+					if (v2_old != v_old) {
+						if (vertices_indices.count(v2_old) != 0) {
+							vert_degree[v_new] += 1;
+							uint32_t v2_new = old2new_vert.at(v2_old);
+							triplet_list.push_back(Eigen::Triplet<float>(v_new, v2_new, -1.f));
 						}
 					}
 				}
@@ -40,40 +66,89 @@ vertex_laplacian_layout(const std::vector<Eigen::Array3i>& faces,
 	}
 
 	// fill degree triplets
-	for (uint32_t i : vertices_indices) {
+	for (uint32_t i = 0; i < (uint32_t)vertices_indices.size(); ++i) {
 		triplet_list.push_back(Eigen::Triplet<float>(i, i, (float)vert_degree[i]));
 	}
-	
+
 
 	// Square sparse matrix
-	Eigen::SparseMatrix<float> laplacian(num_max_vertices, num_max_vertices);
+	Eigen::SparseMatrix<float> laplacian(vertices_indices.size(), vertices_indices.size());
 	laplacian.setFromTriplets(triplet_list.begin(), triplet_list.end());
 	laplacian.makeCompressed();
 
 	Spectra::SparseSymMatProd<float> op(laplacian);
-	// Compute 2 eigenvectors
-	Spectra::SymEigsSolver<Spectra::SparseSymMatProd<float>> eigs(op, 2, 4);
+	// Get Fiedler vector
+	// Compute second smallest eigenvector
+	Spectra::SymEigsSolver<Spectra::SparseSymMatProd<float>> eigs(op, 2, 8);
 	eigs.init();
 
-	eigs.compute(Spectra::SortRule::LargestAlge);
+	Eigen::Index num_values = eigs.compute(Spectra::SortRule::SmallestAlge, max_number_interations_eigen, 1.0e-4f, Spectra::SortRule::LargestAlge);
 
+	if (num_values != 2) {
+		std::cerr << "Error: num eigenvalues computed is " << num_values << std::endl;
+		return;
+	}
 	// Get results
-	if (eigs.info() == Spectra::CompInfo::Successful) {
-		std::cout << "Eigenvalues\n" <<eigs.eigenvalues() << std::endl;
+	if (eigs.info() != Spectra::CompInfo::Successful) {
+		std::cout << "Error: No eigenvalues. Computation not successful!" << std::endl;
+		return;
+	}
+
+	float eigenvalue = eigs.eigenvalues()[0];
+	if (eigenvalue <= 0) {
+		std::cerr << "Error: Fiedler eigenvalue is less than 0. Not a connected graph!!" << std::endl;
+		std::cerr << "Computed eigenvalues " << eigenvalue << std::endl;
+
+		return;
+	}
+
+	const Eigen::VectorXf eigenvectors = eigs.eigenvectors().col(0);
+
+
+	if (depth >= context.max_depth) {
+
+		const uint32_t id_0 = context.next_id++;
+		const uint32_t id_1 = context.next_id++;
+
+		for (uint32_t i = 0; i < (uint32_t)eigenvectors.size(); ++i) {
+			context.final_cluster[new2old_vert[i]] = (eigenvectors[i] < 0.0f) ? id_0 : id_1;
+		}
 	}
 	else {
-		std::cout << "No eigenvalues" << std::endl;
+		uint32_t size_cluster_0 = 0;
+		for (uint32_t i = 0; i < (uint32_t)eigenvectors.size(); ++i) {
+			if (eigenvectors[i] < 0.0f) {
+				size_cluster_0 += 1;
+			}
+		}
+		std::unordered_set<uint32_t> indices_0, indices_1;
+		indices_0.reserve(size_cluster_0);
+		indices_1.reserve((uint32_t)eigenvectors.size() - size_cluster_0);
+
+		for (uint32_t i = 0; i < (uint32_t)eigenvectors.size(); ++i) {
+			if (eigenvectors[i] < 0.0f) {
+				indices_0.insert(new2old_vert[i]);
+			}
+			else {
+				indices_1.insert(new2old_vert[i]);
+			}
+		}
+
+		vertex_laplacian_layout(context, depth + 1, faces, vert2face, 
+			indices_0, max_number_interations_eigen);
+		vertex_laplacian_layout(context, depth + 1, faces, vert2face,
+			indices_1, max_number_interations_eigen);
 	}
 
-	return {};
 }
 
 
-std::unordered_map<uint32_t, uint32_t>
+std::vector<uint32_t>
 get_mapping_optimized_layout(
 	const std::vector<Eigen::Array3i>& faces,
 	uint32_t num_vertices,
-	const MultiLevel multi_level_approach)
+	const MultiLevel multi_level_approach,
+	const uint32_t max_number_interations_eigen)
 
 {
 	std::unordered_set<uint32_t> vert_indices;
@@ -90,8 +165,12 @@ get_mapping_optimized_layout(
 		}
 	}
 
+	LayoutContext context(8, (uint32_t)vert2face.size());
 	if (multi_level_approach == MultiLevel::eVertexLaplacian) {
-		return vertex_laplacian_layout(faces, vert2face, vert_indices, num_vertices);
+		{
+			vertex_laplacian_layout(context, 0, faces, vert2face, vert_indices, max_number_interations_eigen);
+		}
+		return context.final_cluster;
 	}
 
 	return {};

@@ -8,7 +8,7 @@ Args::Args(int argc, char** argv)
     
     mArgs.push_back(*argv);
     
-    for(uint32_t i = 1; i < argc; ++i) {
+    for(uint32_t i = 1; i < (uint32_t)argc; ++i) {
         std::string arg = argv[i];
         mArgs.push_back(arg);
         if(arg.size() > 1 &&
