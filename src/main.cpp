@@ -9,9 +9,49 @@ void print_usage() {
         "./mesh_layout_opt [options=?]\n"
         "\t-in=input mesh path (.ply) [mandatory]\n"
         "\t-out=output mesh path\n"
-        "\t-max_iterations=int"
+        "\t-max_iterations=int [default=100000]\n"
+        "\t-error=float [default=1.0e-2]\n"
+        "\t-max_deph=int [default=10]\n"
+        "\t-max_cluster_size=int [default=100]\n"
         "\t-h or --help to see this information\n"
         << std::endl;
+}
+
+void assess_clustering_quality(const TriangleMesh &mesh, const std::vector<uint32_t>& clusters) {
+    std::map<uint32_t, uint32_t> cluster_sizes;
+    std::map<uint32_t, std::vector<uint32_t>> cluster_to_vertices;
+
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        uint32_t cluster = clusters[i];
+        auto it = cluster_sizes.find(cluster);
+        if (it == cluster_sizes.end()) {
+            cluster_sizes.insert({ cluster, 1 });
+        }
+        else {
+            it->second += 1;
+        }
+
+        cluster_to_vertices[cluster].push_back(i);
+    }
+
+
+
+    double_t average_cluster_size = 0.0;
+    uint32_t min_cluster_size = std::numeric_limits<uint32_t>::max();
+    uint32_t max_cluster_size = std::numeric_limits<uint32_t>::min();
+
+    for (const auto& it : cluster_sizes) {
+        average_cluster_size += (double_t)it.second;
+        min_cluster_size = std::min(min_cluster_size, it.second);
+        max_cluster_size = std::max(max_cluster_size, it.second);
+    }
+    average_cluster_size /= (double_t)cluster_sizes.size();
+
+    std::cout << "Num clusters: " << cluster_sizes.size() <<
+        "\nClusters quality:\n"
+        "\tAverage size: " << average_cluster_size << "\n"
+        "\tMin Size: " << min_cluster_size << "\n"
+        "\tMax Size: " << max_cluster_size << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -40,7 +80,21 @@ int main(int argc, char** argv) {
     }
     uint32_t max_number_interations_eigen = 100000;
     if (args.has("max_iterations")) {
-        max_number_interations_eigen = (uint16_t)std::stoi(args.get("max_iterations"));
+        max_number_interations_eigen = (uint32_t)std::stoi(args.get("max_iterations"));
+    }
+
+    uint32_t max_depth = 10;
+    if (args.has("max_deph")) {
+        max_depth = (uint32_t)std::stoi(args.get("max_deph"));
+    }
+
+    uint32_t max_cluster_size = 100;
+    if (args.has("max_cluster_size")) {
+        max_depth = (uint32_t)std::stoi(args.get("max_cluster_size"));
+    }
+    float error = 1.0e-2f;
+    if (args.has("error")) {
+        error = std::stof(args.get("error"));
     }
     
     TriangleMesh mesh(in.c_str());
@@ -54,12 +108,15 @@ int main(int argc, char** argv) {
         mesh.get_faces(),
         (uint32_t)mesh.get_vertices().size(),
         LayoutMaker::MultiLevel::eVertexLaplacian,
-        max_number_interations_eigen);
+        max_depth, max_cluster_size,
+        max_number_interations_eigen, error);
 
     const auto end_timer = std::chrono::high_resolution_clock::now();
     const std::chrono::duration<double> duration = end_timer - ini_timer;
 
     std::cout << "Clustering took " << duration.count() << " s." << std::endl;
+
+    assess_clustering_quality(mesh, clusters);
 
     // find max id
     uint32_t num_colors = 0;

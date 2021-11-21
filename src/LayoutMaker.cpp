@@ -13,8 +13,20 @@ struct LayoutContext {
 
 	uint32_t next_id;
 	const uint32_t max_depth;
+	const uint32_t max_cluster_size;
 	std::vector<uint32_t> final_cluster;
-	LayoutContext(uint32_t max_depth, uint32_t num_vertices) : next_id(0), max_depth(max_depth) {
+	const uint32_t max_iterations_eigen;
+	const float error_eigen;
+
+	LayoutContext(uint32_t max_depth,
+		uint32_t max_cluster_size,
+		uint32_t num_vertices,
+		uint32_t max_iterations_eigen,
+		float error_eigen) :
+		next_id(0), max_depth(max_depth), max_cluster_size(max_cluster_size),
+		max_iterations_eigen(max_iterations_eigen),
+		error_eigen(error_eigen)
+	{
 		final_cluster.resize(num_vertices, 0);
 	}
 };
@@ -25,10 +37,9 @@ vertex_laplacian_layout(
 	const uint32_t depth,
 	const std::vector<Eigen::Array3i>& faces,
 	const std::unordered_multimap<uint32_t, uint32_t>& vert2face,
-	const std::unordered_set<uint32_t>& vertices_indices,
-	const uint32_t max_number_interations_eigen) {
+	const std::unordered_set<uint32_t>& vertices_indices) {
 
-
+	assert(!vertices_indices.empty());
 	std::unordered_map<uint32_t, uint32_t> old2new_vert;
 	std::vector<uint32_t> new2old_vert(vertices_indices.size());
 	old2new_vert.reserve(vertices_indices.size());
@@ -79,10 +90,12 @@ vertex_laplacian_layout(
 	Spectra::SparseSymMatProd<float> op(laplacian);
 	// Get Fiedler vector
 	// Compute second smallest eigenvector
-	Spectra::SymEigsSolver<Spectra::SparseSymMatProd<float>> eigs(op, 2, 8);
+	Spectra::SymEigsSolver<Spectra::SparseSymMatProd<float>> eigs(op, 2, 4);
 	eigs.init();
 
-	Eigen::Index num_values = eigs.compute(Spectra::SortRule::SmallestAlge, max_number_interations_eigen, 1.0e-4f, Spectra::SortRule::LargestAlge);
+	Eigen::Index num_values = eigs.compute(Spectra::SortRule::SmallestAlge,
+		context.max_iterations_eigen, context.error_eigen,
+		Spectra::SortRule::LargestAlge);
 
 	if (num_values != 2) {
 		std::cerr << "Error: num eigenvalues computed is " << num_values << std::endl;
@@ -105,16 +118,8 @@ vertex_laplacian_layout(
 	const Eigen::VectorXf eigenvectors = eigs.eigenvectors().col(0);
 
 
-	if (depth >= context.max_depth) {
-
-		const uint32_t id_0 = context.next_id++;
-		const uint32_t id_1 = context.next_id++;
-
-		for (uint32_t i = 0; i < (uint32_t)eigenvectors.size(); ++i) {
-			context.final_cluster[new2old_vert[i]] = (eigenvectors[i] < 0.0f) ? id_0 : id_1;
-		}
-	}
-	else {
+	// Output or continue
+	{
 		uint32_t size_cluster_0 = 0;
 		for (uint32_t i = 0; i < (uint32_t)eigenvectors.size(); ++i) {
 			if (eigenvectors[i] < 0.0f) {
@@ -134,10 +139,27 @@ vertex_laplacian_layout(
 			}
 		}
 
-		vertex_laplacian_layout(context, depth + 1, faces, vert2face, 
-			indices_0, max_number_interations_eigen);
-		vertex_laplacian_layout(context, depth + 1, faces, vert2face,
-			indices_1, max_number_interations_eigen);
+		if (depth < context.max_depth &&indices_0.size() > context.max_cluster_size) {
+			vertex_laplacian_layout(context, depth + 1, faces, vert2face,
+				indices_0);
+		}
+		else {
+			const uint32_t id = context.next_id++;
+			for (uint32_t idx : indices_0) {
+				context.final_cluster[idx] = id;
+			}
+		}
+
+		if (depth < context.max_depth && indices_1.size() > context.max_cluster_size) {
+			vertex_laplacian_layout(context, depth + 1, faces, vert2face,
+				indices_1);
+		}
+		else {
+			const uint32_t id = context.next_id++;
+			for (uint32_t idx : indices_1) {
+				context.final_cluster[idx] = id;
+			}
+		}
 	}
 
 }
@@ -148,7 +170,10 @@ get_mapping_optimized_layout(
 	const std::vector<Eigen::Array3i>& faces,
 	uint32_t num_vertices,
 	const MultiLevel multi_level_approach,
-	const uint32_t max_number_interations_eigen)
+	const uint32_t max_depth,
+	const uint32_t max_cluster_size,
+	const uint32_t max_number_interations_eigen,
+	const float eigen_error)
 
 {
 	std::unordered_set<uint32_t> vert_indices;
@@ -165,10 +190,10 @@ get_mapping_optimized_layout(
 		}
 	}
 
-	LayoutContext context(8, (uint32_t)vert2face.size());
+	LayoutContext context(max_depth, max_cluster_size, (uint32_t)vert2face.size(), max_number_interations_eigen, eigen_error);
 	if (multi_level_approach == MultiLevel::eVertexLaplacian) {
 		{
-			vertex_laplacian_layout(context, 0, faces, vert2face, vert_indices, max_number_interations_eigen);
+			vertex_laplacian_layout(context, 0, faces, vert2face, vert_indices);
 		}
 		return context.final_cluster;
 	}
