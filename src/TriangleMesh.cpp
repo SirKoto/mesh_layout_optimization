@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include "TriangleMesh.hpp"
 #include <fstream>
 #include <iostream>

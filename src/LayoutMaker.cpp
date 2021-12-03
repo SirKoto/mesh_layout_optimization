@@ -6,40 +6,58 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <iostream>
+#include <numeric>
+#include <stack>
 
 namespace LayoutMaker {
 
 struct LayoutContext {
 
 	uint32_t next_id;
+	const std::shared_ptr<TriangleMesh> p_mesh;
 	const uint32_t max_depth;
 	const uint32_t max_cluster_size;
+	const uint32_t max_spectral_size;
 	std::vector<uint32_t> final_cluster;
 	const uint32_t max_iterations_eigen;
 	const float error_eigen;
 
-	LayoutContext(uint32_t max_depth,
+	LayoutContext(
+		const std::shared_ptr<TriangleMesh> p_mesh,
+		uint32_t max_depth,
 		uint32_t max_cluster_size,
-		uint32_t num_vertices,
+		uint32_t max_spectral_size,
 		uint32_t max_iterations_eigen,
 		float error_eigen) :
-		next_id(0), max_depth(max_depth), max_cluster_size(max_cluster_size),
+		next_id(0), p_mesh(p_mesh), max_depth(max_depth),
+		max_cluster_size(max_cluster_size),
+		max_spectral_size(max_spectral_size),
 		max_iterations_eigen(max_iterations_eigen),
 		error_eigen(error_eigen)
 	{
-		final_cluster.resize(num_vertices, 0);
+		final_cluster.resize(p_mesh->get_vertices().size(), 0);
 	}
 };
 
-void
-vertex_laplacian_layout(
+void vertex_laplacian_layout(
 	LayoutContext& context,
 	const uint32_t depth,
-	const std::vector<Eigen::Array3i>& faces,
 	const std::unordered_multimap<uint32_t, uint32_t>& vert2face,
 	const std::unordered_set<uint32_t>& vertices_indices) {
 
-	assert(!vertices_indices.empty());
+	
+	// Termination if conditions fulfilled
+	if (vertices_indices.empty()) {
+		return;
+	}
+	if (depth >= context.max_depth || vertices_indices.size() <= context.max_cluster_size) {
+		const uint32_t id = context.next_id++;
+		for (uint32_t idx : vertices_indices) {
+			context.final_cluster[idx] = id;
+		}
+		return;
+	}
+
 	std::unordered_map<uint32_t, uint32_t> old2new_vert;
 	std::vector<uint32_t> new2old_vert(vertices_indices.size());
 	old2new_vert.reserve(vertices_indices.size());
@@ -62,7 +80,7 @@ vertex_laplacian_layout(
 		auto range = vert2face.equal_range(v_old);
 		std::for_each(range.first, range.second,
 			[&](const std::pair<const uint32_t, uint32_t>& f_id) {
-				const Eigen::Array3i& face = faces.at(f_id.second);
+				const Eigen::Array3i& face = context.p_mesh->get_faces().at(f_id.second);
 				for (uint32_t j = 0; j < 3; ++j) {
 					uint32_t v2_old = face[j];
 					if (v2_old != v_old) {
@@ -139,43 +157,122 @@ vertex_laplacian_layout(
 			}
 		}
 
-		if (depth < context.max_depth &&indices_0.size() > context.max_cluster_size) {
-			vertex_laplacian_layout(context, depth + 1, faces, vert2face,
+		vertex_laplacian_layout(context, depth + 1, vert2face,
 				indices_0);
-		}
-		else {
-			const uint32_t id = context.next_id++;
-			for (uint32_t idx : indices_0) {
-				context.final_cluster[idx] = id;
-			}
-		}
-
-		if (depth < context.max_depth && indices_1.size() > context.max_cluster_size) {
-			vertex_laplacian_layout(context, depth + 1, faces, vert2face,
+		
+		vertex_laplacian_layout(context, depth + 1, vert2face,
 				indices_1);
-		}
-		else {
-			const uint32_t id = context.next_id++;
-			for (uint32_t idx : indices_1) {
-				context.final_cluster[idx] = id;
-			}
-		}
+		
 	}
 
 }
 
 
+
+void vertex_clustering_layout(
+	LayoutContext& context,
+	const std::unordered_multimap<uint32_t, uint32_t>& vert2face) {
+	if (context.p_mesh->get_vertices().empty()) {
+		return;
+	}
+
+	const std::vector<Eigen::Vector3f>& vertices_mesh = context.p_mesh->get_vertices();
+
+	struct OctNodeTask {
+		std::vector<uint32_t> vertices;
+		uint32_t depth;
+		Eigen::Vector3f mid_coord;
+	};
+
+	Eigen::Vector3f minBBox = Eigen::Vector3f::Constant( std::numeric_limits<float>::infinity());
+	Eigen::Vector3f maxBBox = Eigen::Vector3f::Constant(-std::numeric_limits<float>::infinity());
+
+	for (const Eigen::Vector3f& v : context.p_mesh->get_vertices()) {
+		minBBox = minBBox.cwiseMin(v);
+		maxBBox = maxBBox.cwiseMax(v);
+	}
+
+	const float octree_size = (maxBBox - minBBox).maxCoeff();
+
+	std::stack<OctNodeTask> tasks;
+	std::array<std::vector<uint32_t>, 8> child_verts;
+
+	std::unordered_set<uint32_t> vert_indices_spectral;
+	vert_indices_spectral.reserve(vertices_mesh.size() * 3 / 2);
+	
+
+	// Create root node
+	{
+		OctNodeTask root;
+		root.vertices.resize(context.p_mesh->get_vertices().size());
+		std::iota(root.vertices.begin(), root.vertices.end(), 0);
+		root.depth = 0;
+		root.mid_coord = (maxBBox + minBBox) * 0.5f;
+		tasks.push(std::move(root));
+	}
+
+	// process octree
+	while (!tasks.empty()) {
+		const OctNodeTask task = std::move(tasks.top());
+		tasks.pop();
+
+		const float size_node = octree_size / static_cast<float>(1 << task.depth);
+
+		// Clear childs
+		for (auto& v : child_verts)  v.clear();
+
+		// Classify vertices into the 8 childs
+		for (const uint32_t& i : task.vertices) {
+			const Eigen::Vector3f dir = vertices_mesh[i] - task.mid_coord;
+			uint32_t k =
+				((dir.x() >= 0.f ? 1 : 0) << 0) +
+				((dir.y() >= 0.f ? 1 : 0) << 1) +
+				((dir.z() >= 0.f ? 1 : 0) << 2);
+
+			child_verts[k].push_back(i);
+		}
+
+		// Keep generating tasks or cluster
+		for (uint32_t k = 0; k < 8; ++k) {
+			if (child_verts[k].size() < context.max_spectral_size) {
+				// Reuse set
+				vert_indices_spectral.clear();
+				vert_indices_spectral.insert(child_verts[k].begin(), child_verts[k].end());
+				// Spectral classification
+				vertex_laplacian_layout(
+					context,
+					0, // depth
+					vert2face,
+					vert_indices_spectral
+				);
+			}
+			else {
+				Eigen::Vector3f dir = { k & 0b1 ? 1.f : -1.f, k & 0b10 ? 1.f : -1.f, k & 0b100 ? 1.f : -1.f };
+				OctNodeTask newT;
+				newT.depth = task.depth + 1;
+				newT.mid_coord = task.mid_coord + 0.25f * size_node * dir;
+				newT.vertices = child_verts[k];
+				tasks.push(std::move(newT));
+			}
+		}
+		
+	}
+
+}
+
 std::vector<uint32_t>
 get_mapping_optimized_layout(
-	const std::vector<Eigen::Array3i>& faces,
-	uint32_t num_vertices,
-	const MultiLevel multi_level_approach,
+	const std::shared_ptr<TriangleMesh> p_mesh,
 	const uint32_t max_depth,
 	const uint32_t max_cluster_size,
+	const uint32_t max_spectral_size,
 	const uint32_t max_number_interations_eigen,
 	const float eigen_error)
 
 {
+
+	uint32_t num_vertices = (uint32_t) p_mesh->get_vertices().size();
+
 	std::unordered_set<uint32_t> vert_indices;
 	vert_indices.reserve(num_vertices);
 	for (uint32_t i = 0; i < num_vertices; ++i) {
@@ -184,21 +281,18 @@ get_mapping_optimized_layout(
 
 	std::unordered_multimap<uint32_t, uint32_t> vert2face;
 	vert2face.reserve(num_vertices);
-	for (uint32_t f = 0; f < (uint32_t)faces.size(); ++f) {
+	for (uint32_t f = 0; f < (uint32_t)p_mesh->get_faces().size(); ++f) {
 		for (uint32_t j = 0; j < 3; ++j) {
-			vert2face.insert({faces[f][j], f});
+			vert2face.insert({ p_mesh->get_faces()[f][j], f});
 		}
 	}
 
-	LayoutContext context(max_depth, max_cluster_size, (uint32_t)vert2face.size(), max_number_interations_eigen, eigen_error);
-	if (multi_level_approach == MultiLevel::eVertexLaplacian) {
-		{
-			vertex_laplacian_layout(context, 0, faces, vert2face, vert_indices);
-		}
-		return context.final_cluster;
-	}
-
-	return {};
+	LayoutContext context(p_mesh, max_depth, max_cluster_size, max_spectral_size,
+		max_number_interations_eigen, eigen_error);
+		
+	vertex_clustering_layout(context, vert2face);
+		
+	return context.final_cluster;
 }
 
 }
