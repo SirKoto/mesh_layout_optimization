@@ -10,6 +10,9 @@ void print_usage() {
     std::cout << 
         "./mesh_layout_opt [options=?]\n"
         "\t-in=input mesh path (.ply) [mandatory]\n"
+        "\t-mode=int [default=0]\n"
+        "\t\t0: generate mesh with patches\n"
+        "\t\t1: optimise mesh layout\n"
         "\t-out=output mesh path\n"
         "\t-max_iterations=int [default=100000]\n"
         "\t-error=float [default=1.0e-5]\n"
@@ -101,6 +104,14 @@ int main(int argc, char** argv) {
         max_spectral_size = (uint32_t)std::stoi(args.get("max_spectral_size"));
     }
 
+    int32_t mode = 0;
+    if (args.has("mode")) {
+        mode = std::stoi(args.get("mode"));
+        if (mode < 0 || mode > 1) {
+            print_usage();
+            return 1;
+        }
+    }
 
     float error = 1.0e-5f;
     if (args.has("error")) {
@@ -135,21 +146,24 @@ int main(int argc, char** argv) {
 
     assess_clustering_quality(*mesh, clusters);
 
-    // find max id
-    uint32_t num_colors = 0;
-    for (uint32_t i = 0; i < (uint32_t)clusters.size(); ++i) {
-        num_colors = std::max(num_colors, clusters[i]);
-    }
-    
-    // Random colors
-    std::vector<Eigen::Array3<uint8_t>> color_map(num_colors + 1);
-    for (Eigen::Array3<uint8_t>& color : color_map) {
-        color.setRandom();
-    }
 
-    std::vector<Eigen::Array3<uint8_t>> colors(clusters.size());
-    for (uint32_t i = 0; i < (uint32_t)colors.size(); ++i) {
-        colors[i] = color_map[clusters[i]];
+    if (mode == 0) {
+        // find max id
+        uint32_t num_colors = 0;
+        for (uint32_t i = 0; i < (uint32_t)clusters.size(); ++i) {
+            num_colors = std::max(num_colors, clusters[i]);
+        }
+
+        // Random colors
+        std::vector<Eigen::Array3<uint8_t>> color_map(num_colors + 1);
+        for (Eigen::Array3<uint8_t>& color : color_map) {
+            color.setRandom();
+        }
+
+        std::vector<Eigen::Array3<uint8_t>> colors(clusters.size());
+        for (uint32_t i = 0; i < (uint32_t)colors.size(); ++i) {
+            colors[i] = color_map[clusters[i]];
+        }
+        mesh->write_mesh_ply("out.ply", colors);
     }
-    mesh->write_mesh_ply("out.ply", colors);
 }
