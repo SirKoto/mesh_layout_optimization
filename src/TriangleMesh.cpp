@@ -41,6 +41,11 @@ void TriangleMesh::write_mesh_ply(const char* fileName, const std::vector<Eigen:
 }
 
 
+void TriangleMesh::rearrange_vertices(const std::vector<uint32_t>& old2new)
+{
+	assert(false && "TODO");
+}
+
 void TriangleMesh::parse_ply(const char* fileName)
 {
 	std::ifstream stream(fileName, std::ios::binary);

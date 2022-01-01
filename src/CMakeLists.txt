@@ -5,7 +5,8 @@ add_executable(${PROJECT_NAME}
     main.cpp
     TriangleMesh.cpp TriangleMesh.hpp
     Args.cpp Args.hpp 
-    LayoutMaker.cpp LayoutMaker.hpp)
+    LayoutMaker.cpp LayoutMaker.hpp
+    LayoutOptimizer.cpp LayoutOptimizer.hpp)
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_11)
 

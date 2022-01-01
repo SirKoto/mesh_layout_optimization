@@ -4,6 +4,7 @@
 #include "Args.hpp"
 #include "TriangleMesh.hpp"
 #include "LayoutMaker.hpp"
+#include "LayoutOptimizer.hpp"
 #include <chrono>
 
 void print_usage() {
@@ -164,6 +165,15 @@ int main(int argc, char** argv) {
         for (uint32_t i = 0; i < (uint32_t)colors.size(); ++i) {
             colors[i] = color_map[clusters[i]];
         }
-        mesh->write_mesh_ply("out.ply", colors);
+        mesh->write_mesh_ply(out.c_str(), colors);
+    }
+
+    if (mode == 1) {
+
+        const std::vector<uint32_t> new_pos = LayoutOptimizer::optimize_layout(*mesh, clusters);
+
+        mesh->rearrange_vertices(new_pos);
+
+        mesh->write_mesh_ply(out.c_str());
     }
 }

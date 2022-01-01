@@ -22,6 +22,8 @@ public:
 		return m_faces;
 	}
 
+	void rearrange_vertices(const std::vector<uint32_t>& old2new);
+
 private:
 
 	void parse_ply(const char* path);
