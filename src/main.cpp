@@ -20,6 +20,7 @@ void print_usage() {
         "\t-max_deph=int [default=10]\n"
         "\t-max_cluster_size=int [default=100]\n"
         "\t-max_spectral_size=int [default=100000]\n"
+        "\t-out_edges_model=output edges path ply\n"
         "\t-h or --help to see this information\n"
         << std::endl;
 }
@@ -175,5 +176,9 @@ int main(int argc, char** argv) {
         mesh->rearrange_vertices(new_pos);
 
         mesh->write_mesh_ply(out.c_str());
+    }
+
+    if (args.has("out_edges_model")) {
+        mesh->write_mesh_vertices_sequence_ply(args.get("out_edges_model").c_str());
     }
 }
