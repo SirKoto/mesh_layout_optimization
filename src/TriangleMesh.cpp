@@ -43,7 +43,18 @@ void TriangleMesh::write_mesh_ply(const char* fileName, const std::vector<Eigen:
 
 void TriangleMesh::rearrange_vertices(const std::vector<uint32_t>& old2new)
 {
-	assert(false && "TODO");
+	assert(old2new.size() == m_vertices.size());
+	std::vector<Eigen::Vector3f> new_vertices(m_vertices.size());
+	for (uint32_t i = 0; i < (uint32_t)m_vertices.size(); ++i) {
+		new_vertices[old2new[i]] = m_vertices[i];
+	}
+	m_vertices = new_vertices;
+
+	for (Eigen::Array3i& face : m_faces) {
+		for (uint32_t i = 0; i < 3; ++i) {
+			face[i] = old2new[face[i]];
+		}
+	}
 }
 
 void TriangleMesh::parse_ply(const char* fileName)
