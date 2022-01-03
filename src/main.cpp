@@ -16,11 +16,12 @@ void print_usage() {
         "\t\t1: optimise mesh layout\n"
         "\t-out=output mesh path\n"
         "\t-max_iterations=int [default=100000]\n"
-        "\t-error=float [default=1.0e-5]\n"
+        "\t-error=float [default=1.0e-7]\n"
         "\t-max_deph=int [default=10]\n"
         "\t-max_cluster_size=int [default=100]\n"
         "\t-max_spectral_size=int [default=100000]\n"
         "\t-out_edges_model=output edges path ply\n"
+        "\t-c forces output model with colors of clusters\n"
         "\t-h or --help to see this information\n"
         << std::endl;
 }
@@ -101,7 +102,7 @@ int main(int argc, char** argv) {
     if (args.has("max_cluster_size")) {
         max_cluster_size = (uint32_t)std::stoi(args.get("max_cluster_size"));
     }
-    uint32_t max_spectral_size = 10000;
+    uint32_t max_spectral_size = 100000;
     if (args.has("max_spectral_size")) {
         max_spectral_size = (uint32_t)std::stoi(args.get("max_spectral_size"));
     }
@@ -115,7 +116,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    float error = 1.0e-5f;
+    float error = 1.0e-7f;
     if (args.has("error")) {
         error = std::stof(args.get("error"));
     }
@@ -149,7 +150,10 @@ int main(int argc, char** argv) {
     assess_clustering_quality(*mesh, clusters);
 
 
-    if (mode == 0) {
+
+    std::vector<Eigen::Array3<uint8_t>> colors;
+
+    if (mode == 0 || args.has("c")) {
         // find max id
         uint32_t num_colors = 0;
         for (uint32_t i = 0; i < (uint32_t)clusters.size(); ++i) {
@@ -162,10 +166,13 @@ int main(int argc, char** argv) {
             color.setRandom();
         }
 
-        std::vector<Eigen::Array3<uint8_t>> colors(clusters.size());
+        colors = std::vector<Eigen::Array3<uint8_t>>(clusters.size());
         for (uint32_t i = 0; i < (uint32_t)colors.size(); ++i) {
             colors[i] = color_map[clusters[i]];
         }
+    }
+
+    if (mode == 0) {
         mesh->write_mesh_ply(out.c_str(), colors);
     }
 
@@ -182,7 +189,7 @@ int main(int argc, char** argv) {
 
         mesh->rearrange_vertices(new_pos);
 
-        mesh->write_mesh_ply(out.c_str());
+        mesh->write_mesh_ply(out.c_str(), colors);
     }
 
     if (args.has("out_edges_model")) {

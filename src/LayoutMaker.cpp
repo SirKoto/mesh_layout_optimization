@@ -8,6 +8,7 @@
 #include <iostream>
 #include <numeric>
 #include <stack>
+#include "UnionFind.hpp"
 
 namespace LayoutMaker {
 
@@ -49,6 +50,10 @@ void vertex_laplacian_layout(
 	// Termination if conditions fulfilled
 	if (vertices_indices.empty()) {
 		return;
+	}
+	if (depth >= context.max_depth) {
+		std::cout << "Broke on depth " << depth << " with vertices " << vertices_indices.size() << std::endl;
+		assert(false);
 	}
 	if (depth >= context.max_depth || vertices_indices.size() <= context.max_cluster_size) {
 		const uint32_t id = context.next_id++;
@@ -198,6 +203,8 @@ void vertex_clustering_layout(
 	std::array<std::vector<uint32_t>, 8> child_verts;
 
 	std::unordered_set<uint32_t> vert_indices_spectral;
+	std::vector<std::vector<uint32_t>> vert_indices_per_set_buffer;
+
 	vert_indices_spectral.reserve(vertices_mesh.size() * 3 / 2);
 	
 
@@ -234,17 +241,55 @@ void vertex_clustering_layout(
 
 		// Keep generating tasks or cluster
 		for (uint32_t k = 0; k < 8; ++k) {
+			if (child_verts[k].empty()) {
+				continue;
+			}
+
 			if (child_verts[k].size() < context.max_spectral_size) {
-				// Reuse set
-				vert_indices_spectral.clear();
-				vert_indices_spectral.insert(child_verts[k].begin(), child_verts[k].end());
-				// Spectral classification
-				vertex_laplacian_layout(
-					context,
-					0, // depth
-					vert2face,
-					vert_indices_spectral
-				);
+				UnionFind<uint32_t> uf(child_verts[k]);
+				for (uint32_t v : child_verts[k]) {
+					auto range = vert2face.equal_range(v);
+					std::for_each(range.first, range.second,
+						[&](const std::pair<const uint32_t, uint32_t>& f_id) {
+							const Eigen::Array3i& face = context.p_mesh->get_faces().at(f_id.second);
+							for (uint32_t j = 0; j < 3; ++j) {
+								uint32_t v2 = face[j];
+								if (v2 != v) {
+									uf.union_sets(v, v2);
+								}
+							}
+						}
+					);
+				}
+
+				if (uf.get_num_sets() != 1) {
+					if (vert_indices_per_set_buffer.size() < uf.get_num_sets()) {
+						vert_indices_per_set_buffer.resize(uf.get_num_sets());
+					}
+						uf.get_elements_of_sets(&vert_indices_per_set_buffer);
+						for (const std::vector<uint32_t>& verts : vert_indices_per_set_buffer) {
+							vert_indices_spectral.clear();
+							vert_indices_spectral.insert(verts.begin(), verts.end());
+							// Spectral classification
+							vertex_laplacian_layout(
+								context,
+								0, // depth
+								vert2face,
+								vert_indices_spectral
+							);
+						}
+				}
+				else {
+					vert_indices_spectral.clear();
+					vert_indices_spectral.insert(child_verts[k].begin(), child_verts[k].end());
+					// Spectral classification
+					vertex_laplacian_layout(
+						context,
+						0, // depth
+						vert2face,
+						vert_indices_spectral
+					);
+				}
 			}
 			else {
 				Eigen::Vector3f dir = { k & 0b1 ? 1.f : -1.f, k & 0b10 ? 1.f : -1.f, k & 0b100 ? 1.f : -1.f };
