@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
         "\tMax iterations Eigen: " << max_number_interations_eigen << "\n"
         "\tError: " << error << std::endl;
 
-    const auto ini_timer = std::chrono::high_resolution_clock::now();
+    auto ini_timer = std::chrono::high_resolution_clock::now();
 
     std::vector<uint32_t> clusters =
     LayoutMaker::get_mapping_optimized_layout(
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
         max_depth, max_cluster_size, max_spectral_size,
         max_number_interations_eigen, error);
 
-    const auto end_timer = std::chrono::high_resolution_clock::now();
+    auto end_timer = std::chrono::high_resolution_clock::now();
     const std::chrono::duration<double> duration = end_timer - ini_timer;
 
     std::cout << "Clustering took " << duration.count() << " s." << std::endl;
@@ -171,7 +171,14 @@ int main(int argc, char** argv) {
 
     if (mode == 1) {
 
+        const auto ini_timer_l = std::chrono::high_resolution_clock::now();
+        
         const std::vector<uint32_t> new_pos = LayoutOptimizer::optimize_layout(*mesh, clusters);
+
+        const auto end_timer_l = std::chrono::high_resolution_clock::now();
+        const std::chrono::duration<double> duration_l = end_timer_l - ini_timer_l;
+        std::cout << "Layout local optimization took " << duration_l.count() << " s." << std::endl;
+        std::cout << "Total took " << duration_l.count() + duration.count() << " s." << std::endl;
 
         mesh->rearrange_vertices(new_pos);
 
