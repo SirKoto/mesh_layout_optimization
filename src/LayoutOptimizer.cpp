@@ -33,7 +33,7 @@ std::vector<uint32_t> optimize_layout(const TriangleMesh& mesh, const std::vecto
 
 	std::vector<uint32_t> new_layout(clusters.size(), std::numeric_limits<uint32_t>::max());
 
-	const uint32_t num_clusters = 1 + *std::max_element(clusters.begin(), clusters.end());
+	const int32_t num_clusters = 1 + *std::max_element(clusters.begin(), clusters.end());
 
 	// Cluster_to_vert has for each cluster a sorted list of all the vertices in the cluster
 	std::vector<std::vector<uint32_t>> cluster_to_vert(num_clusters);
@@ -51,9 +51,15 @@ std::vector<uint32_t> optimize_layout(const TriangleMesh& mesh, const std::vecto
 		}
 	}
 
-	uint32_t offset = 0;
+	std::vector<uint32_t> offsets(num_clusters, 0);
+	for (uint32_t i = 1; i < (uint32_t)num_clusters; ++i) {
+		offsets[i] = (uint32_t)cluster_to_vert[i - 1].size() + offsets[i - 1];
+	}
+
 	std::vector<uint32_t> tmp;
-	for (uint32_t c = 0; c < num_clusters; ++c) {
+
+#pragma omp parallel for schedule(dynamic) firstprivate(tmp)
+	for (int32_t c = 0; c < num_clusters; ++c) {
 		std::vector<uint32_t>& cluster = cluster_to_vert[c];
 		const uint32_t cluster_size = (uint32_t)cluster.size();
 		tmp.clear();
@@ -77,10 +83,9 @@ std::vector<uint32_t> optimize_layout(const TriangleMesh& mesh, const std::vecto
 
 		} while (std::next_permutation(cluster.begin(), cluster.end()));
 
-		std::copy(tmp.begin(), tmp.end(), new_layout.data() + offset);
+		std::copy(tmp.begin(), tmp.end(), new_layout.data() + offsets[c]);
 
 		assert((uint32_t)tmp.size() == cluster_size);
-		offset += cluster_size;
 	}
 
 	return new_layout;
