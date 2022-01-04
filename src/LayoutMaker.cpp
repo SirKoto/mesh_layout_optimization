@@ -206,7 +206,6 @@ void vertex_clustering_layout(
 	std::vector<std::vector<uint32_t>> vert_indices_per_set_buffer;
 
 	vert_indices_spectral.reserve(vertices_mesh.size() * 3 / 2);
-	
 
 	// Create root node
 	{
@@ -216,6 +215,20 @@ void vertex_clustering_layout(
 		root.depth = 0;
 		root.mid_coord = (maxBBox + minBBox) * 0.5f;
 		tasks.push(std::move(root));
+	}
+
+	// Do not create octree if not needed
+	if (tasks.top().vertices.size() < context.max_spectral_size) {
+		vert_indices_spectral.clear();
+		vert_indices_spectral.insert(tasks.top().vertices.begin(), tasks.top().vertices.end());
+		// Spectral classification
+		vertex_laplacian_layout(
+			context,
+			0, // depth
+			vert2face,
+			vert_indices_spectral
+		);
+		return;
 	}
 
 	// process octree

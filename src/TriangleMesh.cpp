@@ -17,7 +17,7 @@ void TriangleMesh::print_debug_info() const
 
 void TriangleMesh::write_mesh_ply(const char* fileName, const std::vector<Eigen::Array3<uint8_t>>& colors) const
 {
-	std::ofstream stream(fileName,  std::ios::trunc);
+	std::ofstream stream(fileName, std::ios::binary | std::ios::trunc);
 
 	tinyply::PlyFile file;
 
@@ -37,12 +37,12 @@ void TriangleMesh::write_mesh_ply(const char* fileName, const std::vector<Eigen:
 		reinterpret_cast<const uint8_t*>(m_faces.data()),
 		tinyply::Type::UINT8, 3);
 
-	file.write(stream, false);
+	file.write(stream, true);
 }
 
 void TriangleMesh::write_mesh_vertices_sequence_ply(const char* fileName) const
 {
-	std::ofstream stream(fileName, std::ios::trunc);
+	std::ofstream stream(fileName, std::ios::binary | std::ios::trunc);
 
 	tinyply::PlyFile file;
 
@@ -54,11 +54,12 @@ void TriangleMesh::write_mesh_vertices_sequence_ply(const char* fileName) const
 	std::vector<int32_t> edges;
 	edges.reserve(m_vertices.size() * 2);
 
-	const int32_t* p_face = reinterpret_cast<const int32_t*>(m_faces.data());
-	for (size_t i = 1; i < m_faces.size() * 3; ++i) {
-		if (std::abs(p_face[i - 1] - p_face[i]) <= 1) {
-			edges.push_back(p_face[i - 1]);
-			edges.push_back(p_face[i]);
+	for (const Eigen::Array3i& f : m_faces) {
+		for (uint32_t i = 0; i < 3; ++i) {
+			if (std::abs(f[i] - f[(i + 1) % 3]) <= 3) {
+				edges.push_back(f[i]);
+				edges.push_back(f[(i + 1) % 3]);
+			}
 		}
 	}
 
@@ -67,7 +68,7 @@ void TriangleMesh::write_mesh_vertices_sequence_ply(const char* fileName) const
 		reinterpret_cast<const uint8_t*>(edges.data()),
 		tinyply::Type::INVALID, 0);
 
-	file.write(stream, false);
+	file.write(stream, true);
 
 }
 
