@@ -189,6 +189,8 @@ int main(int argc, char** argv) {
 
         mesh->rearrange_vertices(new_pos);
 
+        mesh->sort_faces();
+
         mesh->write_mesh_ply(out.c_str(), colors);
     }
 

@@ -89,6 +89,24 @@ void TriangleMesh::rearrange_vertices(const std::vector<uint32_t>& old2new)
 	}
 }
 
+void TriangleMesh::sort_faces()
+{
+	// Put the min vertex at the beginning
+	for (Eigen::Array3i& face : m_faces) {
+		int32_t m = face.minCoeff();
+		while (m != face[0]) {
+			std::rotate(face.begin(), face.begin() + 1, face.end());
+		}
+	}
+
+	// Sort the faces
+	struct SortFace {
+		bool operator() (const Eigen::Array3i& a, const Eigen::Array3i& b) { return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end()); }
+	} sort_face_obj;
+
+	std::sort(m_faces.begin(), m_faces.end(), sort_face_obj);
+}
+
 void TriangleMesh::parse_ply(const char* fileName)
 {
 	std::ifstream stream(fileName, std::ios::binary);

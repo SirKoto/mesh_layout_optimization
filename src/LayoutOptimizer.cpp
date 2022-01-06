@@ -62,6 +62,11 @@ std::vector<uint32_t> optimize_layout(const TriangleMesh& mesh, const std::vecto
 	for (int32_t c = 0; c < num_clusters; ++c) {
 		std::vector<uint32_t>& cluster = cluster_to_vert[c];
 		const uint32_t cluster_size = (uint32_t)cluster.size();
+		// Just in case, skip if too large
+		if (cluster_size > 15) {
+			std::copy(cluster.begin(), cluster.end(), new_layout.data() + offsets[c]);
+			continue;
+		}
 		tmp.clear();
 
 		int32_t edge_span = std::numeric_limits<int32_t>::max();
